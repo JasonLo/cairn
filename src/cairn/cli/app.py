@@ -16,6 +16,7 @@ from .orient_cmd import orient
 from .register_cmd import register, registered, unregister
 from .skills_cmd import app as skills_app
 from .status_cmd import status
+from .token_cmd import app as token_app
 from .validate_cmd import validate
 
 app = typer.Typer(
@@ -38,6 +39,7 @@ app.command(name="register")(register)
 app.command(name="unregister")(unregister)
 app.command(name="registered")(registered)
 app.command(name="mcp")(mcp)
+app.add_typer(token_app, name="token")
 app.add_typer(skills_app, name="skills")
 
 

@@ -189,6 +189,24 @@ The `cairn` Python package is the canonical tooling for creating and managing ca
 
 ---
 
+### US-P-14: Gate the HTTP MCP server on a bearer token
+
+**Actor**: Operator hosting an MCP server for themselves or a group, reachable beyond loopback or shared across collaborators on the same machine.
+
+**Story**: As an operator, I want to require a bearer token on `cairn mcp` HTTP requests so I can host one server for my group without standing up a reverse-proxy stack just for auth.
+
+**Expected behavior**
+- `cairn mcp --auth {none,token}` selects the gate; default `none` so existing setups are unchanged. `--auth token` requires `--transport streamable-http` or `sse` (stdio rejects the combination with an actionable CLI error).
+- `cairn token issue <name> [--note ...]` mints a new bearer token, prints it exactly once, and stores only its sha256 hash at `~/.config/cairn/server_tokens.toml` (mode `0600`). Re-issuing for an active name fails — operators must `cairn token revoke <name>` first.
+- `cairn token revoke <name>` flips a `revoked_at` timestamp; the entry stays in the store for audit, the verifier refuses any token whose hash matches it.
+- `cairn token list` enumerates names, status (active/revoked), `created_at`, `last_used_at`, and notes. Never prints hashes or raw tokens.
+- The server fails fast at startup if `--auth token` is set and no active tokens exist, naming the store path and the issuance command.
+- Tokens are 32 random bytes, urlsafe-base64-encoded, prefixed `cairn_`. Comparison is constant-time on the hex digest.
+- `verify_token` accepts a presented bearer, returns the matching `StoredToken` or `None`. The verifier sets `client_id = <name>` and `scopes = ["cairn:rw"]` on the resulting `AccessToken`.
+- **Scope boundary (deliberate)**: the verified principal name is **not** bound to the write tools' `author` parameter. Attribution remains the `author` claim, validated against `state/collaborators.yaml`. Binding is deferred to a follow-up ADR. See ADR-0013.
+
+---
+
 ## §2 — Agent / Skill Stories
 
 These stories cover agents (typically Claude Code, but the patterns generalize) interacting with a local cairn through skills. Each skill is a `SKILL.md` file in the cairn's `skills/` directory or in an agent's globally-installed skills.

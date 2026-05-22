@@ -28,6 +28,18 @@ from .errors import CairnError
 from .paths import is_cairn_root
 
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
+"""Kebab-case identifier — reused by the token store (see ``cairn.auth``)."""
+
+
+def cairn_config_dir() -> Path:
+    """Resolve ``~/.config/cairn/`` (or its XDG override).
+
+    Shared by the registry and the bearer-token store so both files
+    land in the same directory.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / "cairn"
 
 
 @dataclass(frozen=True)
@@ -42,9 +54,7 @@ class RegistryError(CairnError):
 
 def registry_path() -> Path:
     """Resolve the registry file location, honoring XDG_CONFIG_HOME."""
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "cairn" / "server.toml"
+    return cairn_config_dir() / "server.toml"
 
 
 def load_registry(path: Path | None = None) -> list[RegisteredCairn]:

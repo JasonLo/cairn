@@ -186,9 +186,51 @@ live capture begins.
 """
 
 
-def build_server() -> FastMCP:
-    """Construct the FastMCP server and register the Tier-1 tools."""
-    mcp = FastMCP(name="cairn", instructions=SERVER_INSTRUCTIONS)
+def build_server(
+    *,
+    auth_enabled: bool = False,
+    auth_issuer: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    streamable_http_path: str | None = None,
+) -> FastMCP:
+    """Construct the FastMCP server and register the Tier-1 tools.
+
+    With ``auth_enabled=True`` the server installs a
+    :class:`CairnTokenVerifier` so HTTP requests must carry a known
+    active bearer token. ``auth_issuer`` is the placeholder issuer URL
+    stamped into OAuth metadata — cosmetic for the token-only flow but
+    must be a syntactically valid URL.
+
+    ``host`` / ``port`` / ``streamable_http_path`` are bind-time
+    settings that live on the FastMCP constructor (not ``run()``).
+    """
+    fastmcp_kwargs: dict[str, Any] = {
+        "name": "cairn",
+        "instructions": SERVER_INSTRUCTIONS,
+    }
+    if host is not None:
+        fastmcp_kwargs["host"] = host
+    if port is not None:
+        fastmcp_kwargs["port"] = port
+    if streamable_http_path is not None:
+        fastmcp_kwargs["streamable_http_path"] = streamable_http_path
+
+    if auth_enabled:
+        from mcp.server.auth.settings import AuthSettings
+        from pydantic import AnyHttpUrl
+
+        from .auth import CairnTokenVerifier
+
+        issuer = auth_issuer or "http://localhost"
+        fastmcp_kwargs["token_verifier"] = CairnTokenVerifier()
+        fastmcp_kwargs["auth"] = AuthSettings(
+            issuer_url=AnyHttpUrl(issuer),
+            resource_server_url=AnyHttpUrl(issuer),
+            required_scopes=["cairn:rw"],
+        )
+
+    mcp = FastMCP(**fastmcp_kwargs)
 
     # ---- Identity / status ------------------------------------------------
 

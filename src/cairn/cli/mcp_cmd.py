@@ -10,6 +10,8 @@ from pathlib import Path
 import typer
 
 _VALID_TRANSPORTS = ("stdio", "streamable-http", "sse")
+_VALID_AUTH_MODES = ("none", "token")
+_HTTP_TRANSPORTS = ("streamable-http", "sse")
 
 
 def mcp(
@@ -61,12 +63,49 @@ def mcp(
         "--path",
         help="URL path for the MCP endpoint in HTTP transports (default: /mcp).",
     ),
+    auth: str = typer.Option(
+        "none",
+        "--auth",
+        help=(
+            "Bearer-token gate for HTTP transports. "
+            "'none' (default) — no server-side auth; suitable for stdio or for "
+            "127.0.0.1 single-user setups. "
+            "'token' — require Authorization: Bearer <token> against tokens "
+            "issued by `cairn token issue`. Only valid with --transport "
+            "streamable-http or sse."
+        ),
+    ),
+    auth_issuer: str | None = typer.Option(
+        None,
+        "--auth-issuer",
+        help=(
+            "Issuer URL stamped into OAuth metadata when --auth token is set. "
+            "Defaults to http://<host>:<port>. Cosmetic for the bearer-token "
+            "flow but must be a syntactically valid URL."
+        ),
+    ),
 ) -> None:
     """Run the MCP server over stdio (default) or HTTP."""
     if transport not in _VALID_TRANSPORTS:
         typer.echo(
             f"error: invalid --transport '{transport}'. "
             f"Valid values: {', '.join(_VALID_TRANSPORTS)}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if auth not in _VALID_AUTH_MODES:
+        typer.echo(
+            f"error: invalid --auth '{auth}'. "
+            f"Valid values: {', '.join(_VALID_AUTH_MODES)}.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    if auth == "token" and transport not in _HTTP_TRANSPORTS:
+        typer.echo(
+            "error: --auth token requires --transport streamable-http or sse. "
+            "(Stdio has no network surface to authenticate.)",
             err=True,
         )
         raise typer.Exit(code=1)
@@ -114,14 +153,43 @@ def mcp(
         registry_mod.load_registry = patched_load_registry  # type: ignore[assignment]
 
     _ensure_registry_loadable()
-    server = build_server()
+
+    auth_enabled = auth == "token"
+    if auth_enabled:
+        # Surface an explicit error if no tokens are loadable — otherwise the
+        # server would happily come up rejecting every request.
+        from ..auth import AuthError, load_tokens, token_store_path
+        from ._common import exit_on
+
+        try:
+            tokens = load_tokens()
+        except AuthError as exc:
+            exit_on(exc)
+        active = [t for t in tokens if not t.is_revoked]
+        if not active:
+            typer.echo(
+                f"error: --auth token requires at least one active token in "
+                f"{token_store_path()}. Issue one with: cairn token issue <name>",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+
+    issuer = auth_issuer or f"http://{host}:{port}"
+    is_http = transport in _HTTP_TRANSPORTS
+    server = build_server(
+        auth_enabled=auth_enabled,
+        auth_issuer=issuer,
+        host=host if is_http else None,
+        port=port if is_http else None,
+        streamable_http_path=path if transport == "streamable-http" else None,
+    )
 
     if transport == "stdio":
         server.run()
     elif transport == "streamable-http":
-        server.run(transport="streamable-http", host=host, port=port, path=path)
+        server.run(transport="streamable-http")
     else:  # sse
-        server.run(transport="sse", host=host, port=port, path=path)
+        server.run(transport="sse")
 
 
 def _default_name_for(p: Path) -> str:
